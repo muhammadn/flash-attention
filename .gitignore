@@ -32,6 +32,7 @@ venv
 
 # AMD
 scripts
+.rocprof*
 csrc/flash_attn_ck
 .eggs
 log

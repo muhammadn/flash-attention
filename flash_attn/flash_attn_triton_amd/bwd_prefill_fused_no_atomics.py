@@ -13,82 +13,79 @@ tl_DROPOUT_DUMP: tl.constexpr = triton.language.constexpr(DROPOUT_DUMP)
 
 
 def get_autotune_configs():
-    if False:
-        if is_cdna():
-            # shared meta-parameters
-            NUM_STAGES = 1
-            NUM_WARPS = 4
-            WAVES_PER_EU = 2
-            MATRIX_INSTR_NONKDIM = 16
+    # params
+    NUM_STAGES_OPTIONS = [1] # og: 1
+    NUM_WARPS_OPTIONS = [4] # og: 4
+    WAVES_PER_EU_OPTIONS = [1] # og: 1
+    PRE_BLOCK_OPTIONS = [128] # og: 128
+    MATRIX_INSTR_NONKDIM = 16 # og: 16
+    BLOCK_CONFIGS = [  # og: 32, 128, 128, 32
+        (32, 128, 128, 32),
+    ]
+    BLK_SLICE_FACTOR_OPTIONS = [2] # og: 2
+    
+    # build configs
+    preprocess_autotune_configs = []
+    causal_autotune_configs = []
+    noncausal_autotune_configs = []
+    for num_warps in NUM_WARPS_OPTIONS:
+        for num_stages in NUM_STAGES_OPTIONS:
+            for waves in WAVES_PER_EU_OPTIONS:
+                # Preprocess configs
+                for pre_block in PRE_BLOCK_OPTIONS:
+                    preprocess_autotune_configs.append(
+                        triton.Config({
+                            "PRE_BLOCK": pre_block,
+                            "waves_per_eu": waves,
+                            "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM
+                        }, num_stages=num_stages, num_warps=num_warps)  # preprocess should maybe just use 1 stage
+                    )
+                
+                # Causal and non-causal configs
+                for m1, n1, m2, n2 in BLOCK_CONFIGS:
+                    # Ensure constraint
+                    assert n1 == m2, f"BLOCK_N1 ({n1}) must equal BLOCK_M2 ({m2})"
+                    
+                    for blk_slice in BLK_SLICE_FACTOR_OPTIONS:
+                        causal_autotune_configs.append(
+                            triton.Config({
+                                "BLOCK_M1": m1, "BLOCK_N1": n1,
+                                "BLOCK_M2": m2, "BLOCK_N2": n2,
+                                "BLK_SLICE_FACTOR": blk_slice,
+                                "waves_per_eu": waves,
+                                "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM
+                            }, num_stages=num_stages, num_warps=num_warps)
+                        )
 
-            preprocess_autotune_configs = [
-                triton.Config({"PRE_BLOCK": 128, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS), # og config
-                triton.Config({"PRE_BLOCK": 64, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({"PRE_BLOCK": 32, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({"PRE_BLOCK": 16, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-            ]
-            preprocess_autotune_keys = [
-                "IS_CAUSAL", "dropout_p", "MAX_SEQLENS_Q", "MAX_SEQLENS_K", 
-                "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
-            ]
-            causal_autotune_configs = [
-                triton.Config({"BLOCK_M1": 32, "BLOCK_N1": 128, "BLOCK_M2": 128, "BLOCK_N2": 32, "BLK_SLICE_FACTOR": 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),  # og config
-                triton.Config({'BLOCK_M1': 16, 'BLOCK_N1': 128, 'BLOCK_M2': 128, 'BLOCK_N2': 16, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({'BLOCK_M1': 16, 'BLOCK_N1': 64, 'BLOCK_M2': 64, 'BLOCK_N2': 16, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({'BLOCK_M1': 32, 'BLOCK_N1': 64, 'BLOCK_M2': 64, 'BLOCK_N2': 32, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-            ]
-            causal_autotune_keys = [
-                "IS_CAUSAL", "dropout_p", "MAX_SEQLENS_Q", "MAX_SEQLENS_K", 
-                "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
-            ]
-            noncausal_autotune_configs = [
-                triton.Config({"BLOCK_M1": 32, "BLOCK_N1": 128, "BLOCK_M2": 128, "BLOCK_N2": 32, "BLK_SLICE_FACTOR": 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),  # og config
-                triton.Config({'BLOCK_M1': 16, 'BLOCK_N1': 128, 'BLOCK_M2': 128, 'BLOCK_N2': 16, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({'BLOCK_M1': 16, 'BLOCK_N1': 64, 'BLOCK_M2': 64, 'BLOCK_N2': 16, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-                triton.Config({'BLOCK_M1': 32, 'BLOCK_N1': 64, 'BLOCK_M2': 64, 'BLOCK_N2': 32, 'BLK_SLICE_FACTOR': 2, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-            ]
-            noncausal_autotune_keys = [
-                "IS_CAUSAL", "dropout_p", "MAX_SEQLENS_Q", "MAX_SEQLENS_K", 
-                "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
-            ]
-            
-            return (preprocess_autotune_configs, preprocess_autotune_keys), (causal_autotune_configs, causal_autotune_keys), (noncausal_autotune_configs, noncausal_autotune_keys)
-        else:
-            raise ValueError("Unknown Device Type")
-    else:
-        # meta-parameters
-        # TODO: fix num_stages later
-        NUM_WARPS, NUM_STAGES = 4, 1
-        WAVES_PER_EU = 1
-        PRE_BLOCK = 128
-        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 128, 128, 32
-        BLK_SLICE_FACTOR = 2
+                        noncausal_autotune_configs.append(
+                            triton.Config({
+                                "BLOCK_M1": m1, "BLOCK_N1": n1,
+                                "BLOCK_M2": m2, "BLOCK_N2": n2,
+                                "BLK_SLICE_FACTOR": blk_slice,
+                                "waves_per_eu": waves,
+                                "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM
+                            }, num_stages=num_stages, num_warps=num_warps)
+                        )
+    
+    # kernel keys
+    preprocess_autotune_keys = [
+        "max_seqlen_q",
+        "ACTUAL_HEAD_DIM", "IS_VARLEN",
+    ]
+    
+    causal_autotune_keys = [
+        "dropout_p", "max_seqlen_q", "max_seqlen_k", 
+        "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
+    ]
+    
+    noncausal_autotune_keys = [
+        "dropout_p", "max_seqlen_q", "max_seqlen_k", 
+        "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
+    ]
 
-        assert BLOCK_N1 == BLOCK_M2
-        
-        # configs for the kernels
-        preprocess_autotune_configs = [
-            triton.Config({"PRE_BLOCK": PRE_BLOCK, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-        ]
-        preprocess_autotune_keys = [
-            "max_seqlen_q",
-           "ACTUAL_HEAD_DIM", "IS_VARLEN",
-        ]
-        causal_autotune_configs = [
-            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-        ]
-        causal_autotune_keys = [
-            "dropout_p", "max_seqlen_q", "max_seqlen_k", 
-            "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
-        ]
-        noncausal_autotune_configs = [
-            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
-        ]
-        noncausal_autotune_keys = [
-            "dropout_p", "max_seqlen_q", "max_seqlen_k", 
-            "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
-        ]
-        return (preprocess_autotune_configs, preprocess_autotune_keys), (causal_autotune_configs, causal_autotune_keys), (noncausal_autotune_configs, noncausal_autotune_keys)
+    return (preprocess_autotune_configs, preprocess_autotune_keys), \
+            (causal_autotune_configs, causal_autotune_keys), \
+            (noncausal_autotune_configs, noncausal_autotune_keys)
     
 
 
