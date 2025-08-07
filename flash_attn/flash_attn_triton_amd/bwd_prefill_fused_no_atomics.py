@@ -11,36 +11,44 @@ DEBUG= False
 tl_DROPOUT_USE_PYTORCH: tl.constexpr = triton.language.constexpr(DROPOUT_USE_PYTORCH)
 tl_DROPOUT_DUMP: tl.constexpr = triton.language.constexpr(DROPOUT_DUMP)
 
+bwd_autotune = os.environ.get('BWD_AUTOTUNE', '0').lower() in ('1', 'true', 'yes')
 
-def get_bwd_configs(autotune = False):
+def get_bwd_configs(autotune = bwd_autotune):
     # default config
     if not autotune:
-        # meta-parameters
-        NUM_WARPS, NUM_STAGES = 4, 1
-        WAVES_PER_EU = 1
-        PRE_BLOCK = 128
-        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 128, 128, 32
-        BLK_SLICE_FACTOR = 2
+        # preprocess params
+        PRE_BLOCK = 64
+        PRE_WAVES_PER_EU=2
+        PRE_NUM_STAGES=2
+        PRE_NUM_WARPS=8
 
-        assert BLOCK_N1 == BLOCK_M2
-        
         # configs for the kernels
         preprocess_autotune_configs = [
-            triton.Config({"PRE_BLOCK": PRE_BLOCK, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
+            triton.Config({"PRE_BLOCK": PRE_BLOCK, "waves_per_eu": PRE_WAVES_PER_EU}, num_stages=PRE_NUM_STAGES, num_warps=PRE_NUM_WARPS),
         ]
         preprocess_autotune_keys = [
             "max_seqlen_q",
            "ACTUAL_HEAD_DIM", "IS_VARLEN",
         ]
+
+        # main params
+        NUM_STAGES=1
+        NUM_WARPS= 4
+        WAVES_PER_EU = 1
+        BLOCK_M1, BLOCK_N1, BLOCK_M2, BLOCK_N2 = 32, 128, 128, 64
+        BLK_SLICE_FACTOR = 2
+        MATRIX_INSTR_NONKDIM=16
+        assert BLOCK_N1 == BLOCK_M2
+
         causal_autotune_configs = [
-            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
+            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
         ]
         causal_autotune_keys = [
             "dropout_p", "max_seqlen_q", "max_seqlen_k", 
             "ACTUAL_HEAD_DIM", "IS_VARLEN", "HQ", "HK",
         ]
         noncausal_autotune_configs = [
-            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
+            triton.Config({"BLOCK_M1": BLOCK_M1, "BLOCK_N1": BLOCK_N1, "BLOCK_M2": BLOCK_M2, "BLOCK_N2": BLOCK_N2, "BLK_SLICE_FACTOR": BLK_SLICE_FACTOR, "waves_per_eu": WAVES_PER_EU, "matrix_instr_nonkdim": MATRIX_INSTR_NONKDIM}, num_stages=NUM_STAGES, num_warps=NUM_WARPS),
         ]
         noncausal_autotune_keys = [
             "dropout_p", "max_seqlen_q", "max_seqlen_k", 
@@ -50,11 +58,29 @@ def get_bwd_configs(autotune = False):
 
 
     # params
+    PRE_BLOCK_OPTIONS = [64, 128] # og: 128
+    PRE_WAVES_PER_EU_OPTIONS=[1, 2]
+    PRE_NUM_STAGES_OPTIONS=[1, 2]
+    PRE_NUM_WARPS_OPTIONS=[4, 8]
+
+
+    # Preprocess configs
+    preprocess_autotune_configs = []
+    for pre_num_warps in PRE_NUM_WARPS_OPTIONS:
+        for pre_num_stages in PRE_NUM_STAGES_OPTIONS:
+            for pre_waves in PRE_WAVES_PER_EU_OPTIONS:
+                for pre_block in PRE_BLOCK_OPTIONS:
+                    preprocess_autotune_configs.append(
+                        triton.Config({
+                            "PRE_BLOCK": pre_block,
+                            "waves_per_eu": pre_waves,
+                        }, num_stages=pre_num_stages, num_warps=pre_num_warps)
+                    )
+
     NUM_STAGES_OPTIONS = [1, 2] # og: 1
     NUM_WARPS_OPTIONS = [4, 8] # og: 4
-    WAVES_PER_EU_OPTIONS = [1] # og: 1
-    PRE_BLOCK_OPTIONS = [64, 128] # og: 128
-    MATRIX_INSTR_NONKDIM_OPTIONS = [16] # og: 16
+    WAVES_PER_EU_OPTIONS = [1, 2] # og: 1
+    MATRIX_INSTR_NONKDIM_OPTIONS = [16, 32] # og: 16
     BLOCK_M1_OPTIONS = [ # og: 32
         32, 64
     ]
@@ -67,23 +93,12 @@ def get_bwd_configs(autotune = False):
     BLK_SLICE_FACTOR_OPTIONS = [2] # og: 2
     
     # build configs
-    preprocess_autotune_configs = []
     causal_autotune_configs = []
     noncausal_autotune_configs = []
     for num_warps in NUM_WARPS_OPTIONS:
         for num_stages in NUM_STAGES_OPTIONS:
             for waves in WAVES_PER_EU_OPTIONS:
                 for matrix_instr_nonkdim in MATRIX_INSTR_NONKDIM_OPTIONS:
-                    # Preprocess configs
-                    for pre_block in PRE_BLOCK_OPTIONS:
-                        preprocess_autotune_configs.append(
-                            triton.Config({
-                                "PRE_BLOCK": pre_block,
-                                "waves_per_eu": waves,
-                                "matrix_instr_nonkdim": matrix_instr_nonkdim
-                            }, num_stages=num_stages, num_warps=num_warps)  # preprocess should maybe just use 1 stage
-                        )
-                    
                     # Causal and non-causal configs
                     for m1 in BLOCK_M1_OPTIONS:
                         for n1 in BLOCK_N1_M2_OPTIONS:
