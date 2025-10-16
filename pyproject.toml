@@ -13,4 +13,4 @@ authors = [
   { name = "John Doe", email = "john.doe@example.com" },
 ]
 keywords = ["example", "python", "package"]
-dynamic = ["dependencies"] # Declare dependencies as dynamic
+dynamic = ["dependencies", "classifiers"] # Declare dependencies as dynamic
