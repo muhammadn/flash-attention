@@ -13,9 +13,4 @@ authors = [
   { name = "John Doe", email = "john.doe@example.com" },
 ]
 keywords = ["example", "python", "package"]
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
 dynamic = ["dependencies"] # Declare dependencies as dynamic
