@@ -5,4 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flash-attention"
 version = "2.8.0"
+description = "A short description of my awesome package."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [
+  { name = "John Doe", email = "john.doe@example.com" },
+]
+keywords = ["example", "python", "package"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = ['torch<=2.10']
